@@ -87,8 +87,8 @@ async function largeSwapXToY() {
     console.log(`Token X: ${formatTokenAmount(balanceTokenXBefore)} (${balanceTokenXBefore} raw)`);
     console.log(`Token Y: ${formatTokenAmount(balanceTokenYBefore)} (${balanceTokenYBefore} raw)`);
 
-    // Large swap parameters
-    const amountIn = 5_000_000_000; // 5.0 tokens
+    // Large swap parameters - CUSTOMIZE THESE VALUES!
+    const amountIn = 8_000_000_000; // 8.0 tokens (changed from 5.0)
     const directionAToB = true; // X to Y
     
     console.log(`\n🔄 Large Swap Parameters:`);

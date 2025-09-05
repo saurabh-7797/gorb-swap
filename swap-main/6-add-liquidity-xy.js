@@ -95,14 +95,14 @@ async function addLiquidityXY() {
     console.log(`Token Y: ${formatTokenAmount(balanceTokenYBefore)} (${balanceTokenYBefore} raw)`);
     console.log(`LP Tokens: ${formatTokenAmount(balanceLPBefore)} (${balanceLPBefore} raw)`);
 
-    // Liquidity parameters
-    const amountX = 500_000_000; // 0.5 tokens
-    const amountY = 500_000_000; // 0.5 tokens
+    // Liquidity parameters - CUSTOMIZE THESE VALUES!
+    const amountX = 1000_000_000; // 1.0 tokens (changed from 0.5)
+    const amountY = 2000_000_000; // 2.0 tokens (changed from 0.5)
     
     console.log(`\n💧 Liquidity Parameters:`);
     console.log(`Amount X: ${formatTokenAmount(amountX)} Token X`);
     console.log(`Amount Y: ${formatTokenAmount(amountY)} Token Y`);
-    console.log(`Ratio: 1:1`);
+    console.log(`Ratio: 1:2 (X:Y)`);
 
     // Prepare accounts for AddLiquidity
     const accounts = [

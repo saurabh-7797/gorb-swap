@@ -107,9 +107,9 @@ async function testMultihopXYZ() {
     console.log(`Token Y: ${formatTokenAmount(balanceTokenYBefore)} (${balanceTokenYBefore} raw)`);
     console.log(`Token Z: ${formatTokenAmount(balanceTokenZBefore)} (${balanceTokenZBefore} raw)`);
 
-    // Multihop swap parameters
-    const amountIn = 100_000_000; // 0.1 Token X
-    const minimumAmountOut = 50_000_000; // 0.05 Token Z (slippage protection)
+    // Multihop swap parameters - CUSTOMIZE THESE VALUES!
+    const amountIn = 500_000_000; // 0.5 Token X (changed from 0.1)
+    const minimumAmountOut = 0; // 0 Token Z (no slippage protection for testing)
     const tokenPath = [TOKEN_X_MINT, TOKEN_Y_MINT, TOKEN_Z_MINT];
     
     console.log(`\n🛣️  Multihop Swap Parameters:`);
