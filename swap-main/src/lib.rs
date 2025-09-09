@@ -10,7 +10,7 @@ use solana_program::{
     system_instruction,
     sysvar::Sysvar,
 };
-use spl_token::state::Account as TokenAccount;
+// use spl_token::state::Account as TokenAccount; // Unused import
 use std::str::FromStr;
 use borsh::{BorshDeserialize, BorshSerialize};
 use shank::{ShankInstruction, ShankAccount};
@@ -190,6 +190,11 @@ pub enum TestProjectInstruction {
     Swap { amount_in: u64, direction_a_to_b: bool },
     MultihopSwap { amount_in: u64, minimum_amount_out: u64 },
     MultihopSwapWithPath { amount_in: u64, minimum_amount_out: u64, token_path: Vec<Pubkey> },
+    GetPoolInfo,
+    GetTotalPools,
+    FindPoolsByToken { token_address: Pubkey },
+    GetSwapQuote { amount_in: u64, token_in: Pubkey },
+    GetMultihopQuote { amount_in: u64, token_path: Vec<Pubkey> },
 }
 
 // Pool state
@@ -253,6 +258,21 @@ pub fn process_instruction(
         }
         TestProjectInstruction::MultihopSwapWithPath { amount_in, minimum_amount_out, token_path } => {
             process_multihop_swap_with_path(program_id, accounts, amount_in, minimum_amount_out, token_path)
+        }
+        TestProjectInstruction::GetPoolInfo => {
+            process_get_pool_info(program_id, accounts)
+        }
+        TestProjectInstruction::GetTotalPools => {
+            process_get_total_pools(program_id, accounts)
+        }
+        TestProjectInstruction::FindPoolsByToken { token_address } => {
+            process_find_pools_by_token(program_id, accounts, token_address)
+        }
+        TestProjectInstruction::GetSwapQuote { amount_in, token_in } => {
+            process_get_swap_quote(program_id, accounts, amount_in, token_in)
+        }
+        TestProjectInstruction::GetMultihopQuote { amount_in, token_path } => {
+            process_get_multihop_quote(program_id, accounts, amount_in, token_path)
         }
     }
 }
@@ -1249,8 +1269,8 @@ fn process_multihop_swap_with_path(
         }
         
         let pool_info = remaining_accounts[base_idx];
-        let token_a_info = remaining_accounts[base_idx + 1];
-        let token_b_info = remaining_accounts[base_idx + 2];
+        let _token_a_info = remaining_accounts[base_idx + 1];
+        let _token_b_info = remaining_accounts[base_idx + 2];
         let vault_a_info = remaining_accounts[base_idx + 3];
         let vault_b_info = remaining_accounts[base_idx + 4];
         let intermediate_account = remaining_accounts[base_idx + 5];
@@ -1278,7 +1298,7 @@ fn process_multihop_swap_with_path(
             return Err(ProgramError::InvalidSeeds);
         }
         
-        let (reserve_in, reserve_out, vault_in, vault_out, out_bump) = if direction_a_to_b {
+        let (reserve_in, reserve_out, vault_in, _vault_out, _out_bump) = if direction_a_to_b {
             (pool.reserve_a, pool.reserve_b, vault_a_info, vault_b_info, vault_b_bump)
         } else {
             (pool.reserve_b, pool.reserve_a, vault_b_info, vault_a_info, vault_a_bump)
@@ -1407,43 +1427,7 @@ fn calculate_swap_output(
 }
 
 // Helper function to calculate the expected output amount for a multihop swap
-fn calculate_multihop_output(
-    initial_amount: u64,
-    pools: &[Pool],
-    directions: &[bool], // true for A->B, false for B->A
-) -> Result<u64, ProgramError> {
-    if pools.len() != directions.len() {
-        return Err(ProgramError::InvalidArgument);
-    }
-    
-    let mut current_amount = initial_amount;
-    
-    for (pool, &direction_a_to_b) in pools.iter().zip(directions.iter()) {
-        let (reserve_in, reserve_out) = if direction_a_to_b {
-            (pool.reserve_a, pool.reserve_b)
-        } else {
-            (pool.reserve_b, pool.reserve_a)
-        };
-        
-        current_amount = calculate_swap_output(current_amount, reserve_in, reserve_out)?;
-    }
-    
-    Ok(current_amount)
-}
-
-// Helper function to determine swap direction based on token addresses
-fn determine_swap_direction(
-    input_token: &Pubkey,
-    pool: &Pool,
-) -> Result<bool, ProgramError> {
-    if *input_token == pool.token_a {
-        Ok(true) // A to B
-    } else if *input_token == pool.token_b {
-        Ok(false) // B to A
-    } else {
-        Err(ProgramError::InvalidArgument)
-    }
-}
+// Removed unused functions: calculate_multihop_output and determine_swap_direction
 
 // Integer square root implementation for u128
 trait IntegerSqrt {
@@ -1463,4 +1447,214 @@ impl IntegerSqrt for u128 {
         }
         x
     }
+}
+
+// Get pool information
+fn process_get_pool_info(
+    _program_id: &Pubkey,
+    accounts: &[AccountInfo],
+) -> ProgramResult {
+    let account_info_iter = &mut accounts.iter();
+    let pool_info = next_account_info(account_info_iter)?;
+    
+    // The pool account is already provided, no need to verify seeds
+    // Just check if it's a valid pool account by trying to deserialize it
+    
+    // Deserialize pool data
+    let pool = Pool::unpack(&pool_info.data.borrow())?;
+    
+    // Log pool information
+    solana_program::log::sol_log(&format!("Pool Info:"));
+    solana_program::log::sol_log(&format!("  Pool PDA: {}", pool_info.key));
+    solana_program::log::sol_log(&format!("  Token A: {}", pool.token_a));
+    solana_program::log::sol_log(&format!("  Token B: {}", pool.token_b));
+    solana_program::log::sol_log(&format!("  Reserve A: {}", pool.reserve_a));
+    solana_program::log::sol_log(&format!("  Reserve B: {}", pool.reserve_b));
+    solana_program::log::sol_log(&format!("  Total LP Supply: {}", pool.total_lp_supply));
+    solana_program::log::sol_log(&format!("  Bump: {}", pool.bump));
+    
+    // Calculate ratio
+    if pool.reserve_b > 0 {
+        let ratio = (pool.reserve_a as f64) / (pool.reserve_b as f64);
+        solana_program::log::sol_log(&format!("  Ratio A/B: {:.6}", ratio));
+    }
+    if pool.reserve_a > 0 {
+        let ratio = (pool.reserve_b as f64) / (pool.reserve_a as f64);
+        solana_program::log::sol_log(&format!("  Ratio B/A: {:.6}", ratio));
+    }
+    
+    Ok(())
+}
+
+// Get total number of pools (placeholder - would need a global counter in production)
+fn process_get_total_pools(
+    _program_id: &Pubkey,
+    _accounts: &[AccountInfo],
+) -> ProgramResult {
+    // In a production system, you would maintain a global counter
+    // For now, we'll log that this function was called
+    solana_program::log::sol_log("GetTotalPools called - would return total pool count");
+    solana_program::log::sol_log("Note: In production, maintain a global pool counter");
+    
+    Ok(())
+}
+
+// Find pools by token address
+fn process_find_pools_by_token(
+    _program_id: &Pubkey,
+    _accounts: &[AccountInfo],
+    token_address: Pubkey,
+) -> ProgramResult {
+    solana_program::log::sol_log(&format!("FindPoolsByToken called for token: {}", token_address));
+    solana_program::log::sol_log("Note: This function would search through all pools in production");
+    solana_program::log::sol_log("For now, it logs the search request");
+    
+    // In a production system, you would:
+    // 1. Maintain an index of token -> pool mappings
+    // 2. Or iterate through all known pools
+    // 3. Return all pools that contain this token as either token_a or token_b
+    
+    Ok(())
+}
+
+// Get swap quote - calculate output amount for a given input
+fn process_get_swap_quote(
+    _program_id: &Pubkey,
+    accounts: &[AccountInfo],
+    amount_in: u64,
+    token_in: Pubkey,
+) -> ProgramResult {
+    let account_info_iter = &mut accounts.iter();
+    let pool_info = next_account_info(account_info_iter)?;
+    
+    // The pool account is already provided, no need to verify seeds
+    // Just check if it's a valid pool account by trying to deserialize it
+    
+    // Deserialize pool data
+    let pool = Pool::unpack(&pool_info.data.borrow())?;
+    
+    // Determine swap direction
+    let direction_a_to_b = if token_in == pool.token_a {
+        true
+    } else if token_in == pool.token_b {
+        false
+    } else {
+        return Err(ProgramError::InvalidArgument);
+    };
+    
+    // Calculate output using constant product formula
+    let (reserve_in, reserve_out) = if direction_a_to_b {
+        (pool.reserve_a, pool.reserve_b)
+    } else {
+        (pool.reserve_b, pool.reserve_a)
+    };
+    
+    // Apply constant product formula: amount_out = (amount_in * reserve_out) / (reserve_in + amount_in)
+    let amount_out = if reserve_in == 0 || amount_in == 0 {
+        0
+    } else {
+        (amount_in * reserve_out) / (reserve_in + amount_in)
+    };
+    
+    // Log quote information
+    solana_program::log::sol_log(&format!("Swap Quote:"));
+    solana_program::log::sol_log(&format!("  Pool PDA: {}", pool_info.key));
+    solana_program::log::sol_log(&format!("  Token In: {}", token_in));
+    solana_program::log::sol_log(&format!("  Amount In: {}", amount_in));
+    solana_program::log::sol_log(&format!("  Direction A->B: {}", direction_a_to_b));
+    solana_program::log::sol_log(&format!("  Reserve In: {}", reserve_in));
+    solana_program::log::sol_log(&format!("  Reserve Out: {}", reserve_out));
+    solana_program::log::sol_log(&format!("  Amount Out: {}", amount_out));
+    
+    // Calculate price impact
+    let price_impact = if reserve_in > 0 {
+        let input_ratio = (amount_in as f64) / (reserve_in as f64);
+        input_ratio * 100.0
+    } else {
+        0.0
+    };
+    
+    solana_program::log::sol_log(&format!("  Price Impact: {:.4}%", price_impact));
+    
+    // Calculate exchange rate
+    let exchange_rate = if amount_in > 0 {
+        (amount_out as f64) / (amount_in as f64)
+    } else {
+        0.0
+    };
+    
+    solana_program::log::sol_log(&format!("  Exchange Rate: {:.6}", exchange_rate));
+    
+    Ok(())
+}
+
+// Get multihop quote - calculate output amount for multihop swaps
+fn process_get_multihop_quote(
+    _program_id: &Pubkey,
+    accounts: &[AccountInfo],
+    amount_in: u64,
+    token_path: Vec<Pubkey>,
+) -> ProgramResult {
+    if token_path.len() < 2 {
+        return Err(ProgramError::InvalidArgument);
+    }
+    
+    let account_info_iter = &mut accounts.iter();
+    let mut current_amount = amount_in;
+    
+    solana_program::log::sol_log(&format!("Multihop Quote:"));
+    solana_program::log::sol_log(&format!("  Token Path: {:?}", token_path));
+    solana_program::log::sol_log(&format!("  Amount In: {}", amount_in));
+    
+    // Process each hop
+    for hop in 0..(token_path.len() - 1) {
+        let token_in = token_path[hop];
+        let token_out = token_path[hop + 1];
+        
+        // Get pool account for this hop
+        let pool_info = next_account_info(account_info_iter)?;
+        let pool = Pool::unpack(&pool_info.data.borrow())?;
+        
+        // Determine swap direction
+        let direction_a_to_b = if token_in == pool.token_a {
+            true
+        } else if token_in == pool.token_b {
+            false
+        } else {
+            return Err(ProgramError::InvalidArgument);
+        };
+        
+        // Calculate output for this hop
+        let (reserve_in, reserve_out) = if direction_a_to_b {
+            (pool.reserve_a, pool.reserve_b)
+        } else {
+            (pool.reserve_b, pool.reserve_a)
+        };
+        
+        let hop_amount_out = if reserve_in == 0 || current_amount == 0 {
+            0
+        } else {
+            (current_amount * reserve_out) / (reserve_in + current_amount)
+        };
+        
+        solana_program::log::sol_log(&format!("  Hop {}: {} -> {}", hop + 1, token_in, token_out));
+        solana_program::log::sol_log(&format!("    Pool: {}", pool_info.key));
+        solana_program::log::sol_log(&format!("    Amount In: {}", current_amount));
+        solana_program::log::sol_log(&format!("    Amount Out: {}", hop_amount_out));
+        
+        current_amount = hop_amount_out;
+    }
+    
+    solana_program::log::sol_log(&format!("  Final Amount Out: {}", current_amount));
+    
+    // Calculate total exchange rate
+    let total_exchange_rate = if amount_in > 0 {
+        (current_amount as f64) / (amount_in as f64)
+    } else {
+        0.0
+    };
+    
+    solana_program::log::sol_log(&format!("  Total Exchange Rate: {:.6}", total_exchange_rate));
+    
+    Ok(())
 }
