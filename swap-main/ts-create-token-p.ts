@@ -13,7 +13,6 @@ import {
   createInitializeMintInstruction,
   createMintToInstruction,
   getAccount,
-  TOKEN_PROGRAM_ID,
   MINT_SIZE,
   getMinimumBalanceForRentExemptMint,
 } from "@solana/spl-token";
@@ -51,26 +50,26 @@ function formatTokenAmount(amount: number, decimals: number = 9): string {
 }
 
 /**
- * TypeScript Script: Create Token V
+ * TypeScript Script: Create Token P
  */
-async function createTokenV() {
+async function createTokenP() {
   try {
-    console.log("🚀 Creating Token V...");
+    console.log("🚀 Creating Token P...");
     
-    const tokenVKeypair = Keypair.generate();
-    console.log(`Token V Mint: ${tokenVKeypair.publicKey.toString()}`);
+    const tokenPKeypair = Keypair.generate();
+    console.log(`Token P Mint: ${tokenPKeypair.publicKey.toString()}`);
     
-    const userTokenV = getAssociatedTokenAddressSync(
-      tokenVKeypair.publicKey,
+    const userTokenP = getAssociatedTokenAddressSync(
+      tokenPKeypair.publicKey,
       userKeypair.publicKey,
       false,
       SPL_TOKEN_PROGRAM_ID,
       ATA_PROGRAM_ID
     );
-    console.log(`User Token V ATA: ${userTokenV.toString()}`);
+    console.log(`User Token P ATA: ${userTokenP.toString()}`);
 
     // 1. Create mint account
-    console.log("\n📝 Creating Token V mint account...");
+    console.log("\n📝 Creating Token P mint account...");
     const mintLamports = await getMinimumBalanceForRentExemptMint(connection);
     
     const transaction = new Transaction();
@@ -78,7 +77,7 @@ async function createTokenV() {
     transaction.add(
       SystemProgram.createAccount({
         fromPubkey: userKeypair.publicKey,
-        newAccountPubkey: tokenVKeypair.publicKey,
+        newAccountPubkey: tokenPKeypair.publicKey,
         lamports: mintLamports,
         space: MINT_SIZE,
         programId: SPL_TOKEN_PROGRAM_ID,
@@ -86,10 +85,10 @@ async function createTokenV() {
     );
 
     // 2. Initialize mint
-    console.log("📝 Initializing Token V mint...");
+    console.log("📝 Initializing Token P mint...");
     transaction.add(
       createInitializeMintInstruction(
-        tokenVKeypair.publicKey,
+        tokenPKeypair.publicKey,
         9, // decimals
         userKeypair.publicKey, // mint authority
         null, // freeze authority
@@ -98,34 +97,33 @@ async function createTokenV() {
     );
 
     // 3. Create user ATA
-    console.log("📝 Creating user Token V ATA...");
+    console.log("📝 Creating user Token P ATA...");
     transaction.add(
       createAssociatedTokenAccountInstruction(
         userKeypair.publicKey, // payer
-        userTokenV, // ata
+        userTokenP, // ata
         userKeypair.publicKey, // owner
-        tokenVKeypair.publicKey, // mint
+        tokenPKeypair.publicKey, // mint
         SPL_TOKEN_PROGRAM_ID,
         ATA_PROGRAM_ID
       )
     );
 
     // 4. Send transaction
-    console.log("📝 Minting large amount of Token V to user...");
-    const signature = await sendAndConfirmTransaction(connection, transaction, [userKeypair, tokenVKeypair]);
+    console.log("📝 Minting large amount of Token P to user...");
+    const signature = await sendAndConfirmTransaction(connection, transaction, [userKeypair, tokenPKeypair]);
 
-    console.log(`✅ Token V created successfully!`);
+    console.log(`✅ Token P created successfully!`);
     console.log(`Transaction signature: ${signature}`);
 
-    // 5. Check balance
     // 5. Mint tokens to user
     console.log("📝 Minting tokens to user...");
-    const mintAmount = 15_000_000_000_000; // 15 million tokens
+    const mintAmount = 500_000_000_000; // 500K tokens
     const mintTransaction = new Transaction();
     mintTransaction.add(
       createMintToInstruction(
-        tokenVKeypair.publicKey, // mint
-        userTokenV, // destination
+        tokenPKeypair.publicKey, // mint
+        userTokenP, // destination
         userKeypair.publicKey, // authority
         mintAmount, // amount
         [], // multiSigners
@@ -135,26 +133,26 @@ async function createTokenV() {
     
     await sendAndConfirmTransaction(connection, mintTransaction, [userKeypair]);
     
-    const balance = await getTokenBalance(userTokenV);
-    console.log(`\n📊 Token V Balance: ${formatTokenAmount(balance)} Token V (${balance} raw)`);
+    const balance = await getTokenBalance(userTokenP);
+    console.log(`\n📊 Token P Balance: ${formatTokenAmount(balance)} Token P (${balance} raw)`);
 
     // 6. Save token info
     const tokenInfo = {
-      mint: tokenVKeypair.publicKey.toString(),
-      userATA: userTokenV.toString(),
+      mint: tokenPKeypair.publicKey.toString(),
+      userATA: userTokenP.toString(),
       supply: mintAmount,
       decimals: 9,
       transactionSignature: signature,
     };
 
-    fs.writeFileSync("token-v-info.json", JSON.stringify(tokenInfo, null, 2));
-    console.log("\n💾 Token V info saved to token-v-info.json");
+    fs.writeFileSync("token-p-info.json", JSON.stringify(tokenInfo, null, 2));
+    console.log("\n💾 Token P info saved to token-p-info.json");
 
   } catch (error) {
-    console.error("❌ Error creating Token V:", error);
+    console.error("❌ Error creating Token P:", error);
     throw error;
   }
 }
 
 // Run the function
-createTokenV().catch(console.error);
+createTokenP().catch(console.error);

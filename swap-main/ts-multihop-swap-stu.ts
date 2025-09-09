@@ -95,7 +95,7 @@ async function multihopSwapSTU() {
     console.log(`Token U: ${formatTokenAmount(balanceTokenUBefore)} (${balanceTokenUBefore} raw)`);
 
     // Define swap parameters
-    const amountIn = 10_000_000_000; // 10 Token S
+    const amountIn = 1_000_000_000; // 1 Token S (smaller amount for testing)
     const minimumAmountOut = 1; // Minimum 1 unit of Token U (very low for testing)
     
     console.log(`\n🔄 Multihop Swap Parameters:`);
@@ -109,29 +109,29 @@ async function multihopSwapSTU() {
     // Create intermediate Token T account for the swap route
     const intermediateTokenT = getAssociatedTokenAddressSync(TOKEN_T_MINT, userKeypair.publicKey, false, SPL_TOKEN_PROGRAM_ID, ATA_PROGRAM_ID);
 
-    // Prepare accounts for MultihopSwap (matching working JavaScript script order)
+    // Prepare accounts for MultihopSwap (matching Rust program order)
     const accounts = [
       // User and program accounts
       { pubkey: userKeypair.publicKey, isSigner: true, isWritable: false },
       { pubkey: SPL_TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
       { pubkey: userTokenS, isSigner: false, isWritable: true }, // Initial input
       
-      // Hop 1: S → T
+      // Hop 1: S → T (7 accounts: pool, token_a, token_b, vault_a, vault_b, intermediate, next)
       { pubkey: poolSTPDA, isSigner: false, isWritable: true },
       { pubkey: TOKEN_S_MINT, isSigner: false, isWritable: false },
       { pubkey: TOKEN_T_MINT, isSigner: false, isWritable: false },
       { pubkey: vaultS, isSigner: false, isWritable: true },
       { pubkey: vaultT, isSigner: false, isWritable: true },
       { pubkey: intermediateTokenT, isSigner: false, isWritable: true }, // Intermediate T
-      { pubkey: intermediateTokenT, isSigner: false, isWritable: true }, // Output for hop 1
+      { pubkey: intermediateTokenT, isSigner: false, isWritable: true }, // Next token account
       
-      // Hop 2: T → U  
+      // Hop 2: T → U (7 accounts: pool, token_a, token_b, vault_a, vault_b, intermediate, next)
       { pubkey: poolTUPDA, isSigner: false, isWritable: true },
       { pubkey: TOKEN_T_MINT, isSigner: false, isWritable: false },
       { pubkey: TOKEN_U_MINT, isSigner: false, isWritable: false },
       { pubkey: vaultT2, isSigner: false, isWritable: true },
       { pubkey: vaultU, isSigner: false, isWritable: true },
-      { pubkey: intermediateTokenT, isSigner: false, isWritable: true }, // Input for hop 2  
+      { pubkey: intermediateTokenT, isSigner: false, isWritable: true }, // Intermediate T
       { pubkey: userTokenU, isSigner: false, isWritable: true }, // Final output
     ];
 

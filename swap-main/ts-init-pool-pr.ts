@@ -12,8 +12,8 @@ import {
   createAssociatedTokenAccountInstruction,
   createInitializeMintInstruction,
   getAccount,
-  TOKEN_PROGRAM_ID,
-  ASSOCIATED_TOKEN_PROGRAM_ID,
+  MINT_SIZE,
+  getMinimumBalanceForRentExemptMint,
 } from "@solana/spl-token";
 import * as fs from "fs";
 
@@ -50,27 +50,27 @@ function formatTokenAmount(amount: number, decimals: number = 9): string {
 }
 
 /**
- * TypeScript Script: Initialize Pool U-V
+ * TypeScript Script: Initialize Pool P-R
  * Based on IDL: InitPool (discriminant: 0)
  * Args: amountA (u64), amountB (u64)
  */
-async function initPoolUV() {
+async function initPoolPR() {
   try {
-    console.log("🚀 TypeScript Script: Initializing Pool U-V...");
+    console.log("🚀 TypeScript Script: Initializing Pool P-R...");
     
-    // Load Token U and V info from previous steps
-    const tokenUInfo = JSON.parse(fs.readFileSync('token-u-info.json', 'utf-8'));
-    const tokenVInfo = JSON.parse(fs.readFileSync('token-v-info.json', 'utf-8'));
+    // Load Token P and R info from previous steps
+    const tokenPInfo = JSON.parse(fs.readFileSync('token-p-info.json', 'utf-8'));
+    const tokenRInfo = JSON.parse(fs.readFileSync('token-r-info.json', 'utf-8'));
     
-    const TOKEN_U_MINT = new PublicKey(tokenUInfo.mint);
-    const TOKEN_V_MINT = new PublicKey(tokenVInfo.mint);
+    const TOKEN_P_MINT = new PublicKey(tokenPInfo.mint);
+    const TOKEN_R_MINT = new PublicKey(tokenRInfo.mint);
     
-    console.log(`Token U: ${TOKEN_U_MINT.toString()}`);
-    console.log(`Token V: ${TOKEN_V_MINT.toString()}`);
+    console.log(`Token P: ${TOKEN_P_MINT.toString()}`);
+    console.log(`Token R: ${TOKEN_R_MINT.toString()}`);
 
     // 1. Derive pool PDA (no sorting - matching Rust program)
     const [poolPDA, poolBump] = await PublicKey.findProgramAddress(
-      [Buffer.from("pool"), TOKEN_U_MINT.toBuffer(), TOKEN_V_MINT.toBuffer()],
+      [Buffer.from("pool"), TOKEN_P_MINT.toBuffer(), TOKEN_R_MINT.toBuffer()],
       AMM_PROGRAM_ID
     );
     console.log(`Pool PDA: ${poolPDA.toString()}`);
@@ -83,58 +83,55 @@ async function initPoolUV() {
     console.log(`LP Mint PDA: ${lpMintPDA.toString()}`);
 
     // 3. Derive vault PDAs (matching Rust program logic)
-    const [vaultU, vaultUBump] = await PublicKey.findProgramAddress(
-      [Buffer.from("vault"), poolPDA.toBuffer(), TOKEN_U_MINT.toBuffer()],
+    const [vaultP, vaultPBump] = await PublicKey.findProgramAddress(
+      [Buffer.from("vault"), poolPDA.toBuffer(), TOKEN_P_MINT.toBuffer()],
       AMM_PROGRAM_ID
     );
-    const [vaultV, vaultVBump] = await PublicKey.findProgramAddress(
-      [Buffer.from("vault"), poolPDA.toBuffer(), TOKEN_V_MINT.toBuffer()],
+    const [vaultR, vaultRBump] = await PublicKey.findProgramAddress(
+      [Buffer.from("vault"), poolPDA.toBuffer(), TOKEN_R_MINT.toBuffer()],
       AMM_PROGRAM_ID
     );
-    console.log(`Vault U: ${vaultU.toString()}`);
-    console.log(`Vault V: ${vaultV.toString()}`);
+    console.log(`Vault P: ${vaultP.toString()}`);
+    console.log(`Vault R: ${vaultR.toString()}`);
 
     // 4. User ATAs
-    const userTokenU = getAssociatedTokenAddressSync(TOKEN_U_MINT, userKeypair.publicKey, false, SPL_TOKEN_PROGRAM_ID, ATA_PROGRAM_ID);
-    const userTokenV = getAssociatedTokenAddressSync(TOKEN_V_MINT, userKeypair.publicKey, false, SPL_TOKEN_PROGRAM_ID, ATA_PROGRAM_ID);
+    const userTokenP = getAssociatedTokenAddressSync(TOKEN_P_MINT, userKeypair.publicKey, false, SPL_TOKEN_PROGRAM_ID, ATA_PROGRAM_ID);
+    const userTokenR = getAssociatedTokenAddressSync(TOKEN_R_MINT, userKeypair.publicKey, false, SPL_TOKEN_PROGRAM_ID, ATA_PROGRAM_ID);
     const userLP = getAssociatedTokenAddressSync(lpMintPDA, userKeypair.publicKey, false, SPL_TOKEN_PROGRAM_ID, ATA_PROGRAM_ID);
-    console.log(`User Token U ATA: ${userTokenU.toString()}`);
-    console.log(`User Token V ATA: ${userTokenV.toString()}`);
+    console.log(`User Token P ATA: ${userTokenP.toString()}`);
+    console.log(`User Token R ATA: ${userTokenR.toString()}`);
     console.log(`User LP ATA: ${userLP.toString()}`);
 
     // 4. Check balances before pool initialization
     console.log("\n📊 Balances BEFORE Pool Initialization:");
-    const balanceTokenUBefore = await getTokenBalance(userTokenU);
-    const balanceTokenVBefore = await getTokenBalance(userTokenV);
-    console.log(`Token U: ${formatTokenAmount(balanceTokenUBefore)} (${balanceTokenUBefore} raw)`);
-    console.log(`Token V: ${formatTokenAmount(balanceTokenVBefore)} (${balanceTokenVBefore} raw)`);
+    const balanceTokenPBefore = await getTokenBalance(userTokenP);
+    const balanceTokenRBefore = await getTokenBalance(userTokenR);
+    console.log(`Token P: ${formatTokenAmount(balanceTokenPBefore)} (${balanceTokenPBefore} raw)`);
+    console.log(`Token R: ${formatTokenAmount(balanceTokenRBefore)} (${balanceTokenRBefore} raw)`);
 
-    // 5. Pool initialization parameters with different ratio (3:4)
-    const amountU = 3_000_000_000; // 3 tokens
-    const amountV = 4_000_000_000; // 4 tokens
+    // 5. Pool initialization parameters with 2:3 ratio
+    const amountP = 2_000_000_000; // 2 tokens
+    const amountR = 3_000_000_000; // 3 tokens
     
     console.log(`\n🏊 Pool Initialization Parameters:`);
-    console.log(`Initial Token U: ${formatTokenAmount(amountU)} Token U`);
-    console.log(`Initial Token V: ${formatTokenAmount(amountV)} Token V`);
-    console.log(`Initial Ratio: 3:4`);
+    console.log(`Initial Token P: ${formatTokenAmount(amountP)} Token P`);
+    console.log(`Initial Token R: ${formatTokenAmount(amountR)} Token R`);
+    console.log(`Initial Ratio: 2:3`);
 
     // 6. Create transaction
     const transaction = new Transaction();
 
-    // Note: LP mint and vault accounts are created as PDAs by the program itself
-    // The program will also handle creating the user LP ATA
-
     // 6.3. Prepare accounts for InitPool (matching Rust program order)
     const accounts = [
       { pubkey: poolPDA, isSigner: false, isWritable: true },
-      { pubkey: TOKEN_U_MINT, isSigner: false, isWritable: false },
-      { pubkey: TOKEN_V_MINT, isSigner: false, isWritable: false },
-      { pubkey: vaultU, isSigner: false, isWritable: true }, // PDA, not a signer
-      { pubkey: vaultV, isSigner: false, isWritable: true }, // PDA, not a signer
+      { pubkey: TOKEN_P_MINT, isSigner: false, isWritable: false },
+      { pubkey: TOKEN_R_MINT, isSigner: false, isWritable: false },
+      { pubkey: vaultP, isSigner: false, isWritable: true }, // PDA, not a signer
+      { pubkey: vaultR, isSigner: false, isWritable: true }, // PDA, not a signer
       { pubkey: lpMintPDA, isSigner: false, isWritable: true }, // LP mint PDA
       { pubkey: userKeypair.publicKey, isSigner: true, isWritable: false },
-      { pubkey: userTokenU, isSigner: false, isWritable: true },
-      { pubkey: userTokenV, isSigner: false, isWritable: true },
+      { pubkey: userTokenP, isSigner: false, isWritable: true },
+      { pubkey: userTokenR, isSigner: false, isWritable: true },
       { pubkey: userLP, isSigner: false, isWritable: true },
       { pubkey: SPL_TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
@@ -145,8 +142,8 @@ async function initPoolUV() {
     // 6.7. Instruction data (Borsh: InitPool { amount_a, amount_b })
     const data = Buffer.alloc(1 + 8 + 8); // 1 byte discriminator + 2x u64
     data.writeUInt8(0, 0); // InitPool discriminator
-    data.writeBigUInt64LE(BigInt(amountU), 1);
-    data.writeBigUInt64LE(BigInt(amountV), 9);
+    data.writeBigUInt64LE(BigInt(amountP), 1);
+    data.writeBigUInt64LE(BigInt(amountR), 9);
     
     console.log(`\n📝 Instruction data: ${data.toString('hex')}`);
 
@@ -167,45 +164,45 @@ async function initPoolUV() {
       preflightCommitment: "confirmed",
     });
 
-    console.log(`✅ Pool U-V initialized successfully!`);
+    console.log(`✅ Pool P-R initialized successfully!`);
     console.log(`Transaction signature: ${signature}`);
 
     // 8. Check balances after pool initialization
     console.log("\n📊 Balances AFTER Pool Initialization:");
-    const balanceTokenUAfter = await getTokenBalance(userTokenU);
-    const balanceTokenVAfter = await getTokenBalance(userTokenV);
+    const balanceTokenPAfter = await getTokenBalance(userTokenP);
+    const balanceTokenRAfter = await getTokenBalance(userTokenR);
     const balanceLPAfter = await getTokenBalance(userLP);
     
-    console.log(`Token U: ${formatTokenAmount(balanceTokenUAfter)} (${balanceTokenUAfter} raw)`);
-    console.log(`Token V: ${formatTokenAmount(balanceTokenVAfter)} (${balanceTokenVAfter} raw)`);
+    console.log(`Token P: ${formatTokenAmount(balanceTokenPAfter)} (${balanceTokenPAfter} raw)`);
+    console.log(`Token R: ${formatTokenAmount(balanceTokenRAfter)} (${balanceTokenRAfter} raw)`);
     console.log(`LP Tokens: ${formatTokenAmount(balanceLPAfter)} (${balanceLPAfter} raw)`);
 
     // 9. Save pool info
     const poolInfo = {
       poolPDA: poolPDA.toString(),
       poolBump,
-      tokenU: TOKEN_U_MINT.toString(),
-      tokenV: TOKEN_V_MINT.toString(),
+      tokenP: TOKEN_P_MINT.toString(),
+      tokenR: TOKEN_R_MINT.toString(),
       lpMint: lpMintPDA.toString(),
       lpMintBump,
-      vaultU: vaultU.toString(),
-      vaultV: vaultV.toString(),
-      userTokenU: userTokenU.toString(),
-      userTokenV: userTokenV.toString(),
+      vaultP: vaultP.toString(),
+      vaultR: vaultR.toString(),
+      userTokenP: userTokenP.toString(),
+      userTokenR: userTokenR.toString(),
       userLP: userLP.toString(),
-      initialAmountU: amountU,
-      initialAmountV: amountV,
+      initialAmountP: amountP,
+      initialAmountR: amountR,
       transactionSignature: signature,
     };
 
-    fs.writeFileSync("pool-uv-info.json", JSON.stringify(poolInfo, null, 2));
-    console.log("\n💾 Pool U-V info saved to pool-uv-info.json");
+    fs.writeFileSync("pool-pr-info.json", JSON.stringify(poolInfo, null, 2));
+    console.log("\n💾 Pool P-R info saved to pool-pr-info.json");
 
   } catch (error) {
-    console.error("❌ Error initializing pool U-V:", error);
+    console.error("❌ Error initializing pool P-R:", error);
     throw error;
   }
 }
 
 // Run the function
-initPoolUV().catch(console.error);
+initPoolPR().catch(console.error);

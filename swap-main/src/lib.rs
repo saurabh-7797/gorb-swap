@@ -10,6 +10,7 @@ use solana_program::{
     system_instruction,
     sysvar::Sysvar,
 };
+use spl_token::state::Account as TokenAccount;
 use std::str::FromStr;
 use borsh::{BorshDeserialize, BorshSerialize};
 use shank::{ShankInstruction, ShankAccount};
@@ -107,6 +108,63 @@ fn create_initialize_account_instruction(
             solana_program::instruction::AccountMeta::new_readonly(*mint, false),
             solana_program::instruction::AccountMeta::new_readonly(*authority, false),
             solana_program::instruction::AccountMeta::new_readonly(solana_program::sysvar::rent::id(), false),
+        ],
+        data,
+    }
+}
+
+// InitializeMint instruction for GorbChain SPL Token program
+fn create_initialize_mint_instruction(
+    mint: &Pubkey,
+    decimals: u8,
+    mint_authority: &Pubkey,
+    freeze_authority: Option<&Pubkey>,
+) -> solana_program::instruction::Instruction {
+    let data = {
+        let mut buf = Vec::new();
+        buf.push(0); // InitializeMint instruction discriminator
+        buf.push(decimals);
+        buf.extend_from_slice(mint_authority.as_ref());
+        if let Some(freeze) = freeze_authority {
+            buf.push(1);
+            buf.extend_from_slice(freeze.as_ref());
+        } else {
+            buf.push(0);
+        }
+        buf
+    };
+    solana_program::instruction::Instruction {
+        program_id: Pubkey::from_str(GORBCHAIN_SPL_TOKEN_PROGRAM).unwrap(),
+        accounts: vec![
+            solana_program::instruction::AccountMeta::new(*mint, false),
+            solana_program::instruction::AccountMeta::new_readonly(solana_program::sysvar::rent::id(), false),
+        ],
+        data,
+    }
+}
+
+// Create Associated Token Account instruction for GorbChain SPL Token program
+fn create_associated_token_account_instruction(
+    payer: &Pubkey,
+    associated_token: &Pubkey,
+    owner: &Pubkey,
+    mint: &Pubkey,
+) -> solana_program::instruction::Instruction {
+    let data = {
+        let mut buf = Vec::new();
+        buf.push(0); // CreateAssociatedTokenAccount instruction discriminator
+        buf
+    };
+    solana_program::instruction::Instruction {
+        program_id: Pubkey::from_str("GoATGVNeSXerFerPqTJ8hcED1msPWHHLxao2vwBYqowm").unwrap(), // ATA Program ID
+        accounts: vec![
+            solana_program::instruction::AccountMeta::new(*payer, true),
+            solana_program::instruction::AccountMeta::new(*associated_token, false),
+            solana_program::instruction::AccountMeta::new_readonly(*owner, false),
+            solana_program::instruction::AccountMeta::new_readonly(*mint, false),
+            solana_program::instruction::AccountMeta::new_readonly(solana_program::sysvar::rent::id(), false),
+            solana_program::instruction::AccountMeta::new_readonly(Pubkey::from_str(GORBCHAIN_SPL_TOKEN_PROGRAM).unwrap(), false),
+            solana_program::instruction::AccountMeta::new_readonly(solana_program::system_program::id(), false),
         ],
         data,
     }
@@ -350,6 +408,53 @@ fn process_init_pool(
         &[vault_b_signer_seeds],
     )?;
 
+    // Create LP mint account
+    let mint_space = 82; // Mint account size
+    let mint_lamports = rent.minimum_balance(mint_space);
+    let (lp_mint_pubkey, lp_mint_bump) = Pubkey::find_program_address(
+        &[b"mint", pool_info.key.as_ref()],
+        program_id,
+    );
+    if lp_mint_pubkey != *lp_mint_info.key {
+        return Err(ProgramError::InvalidSeeds);
+    }
+    let lp_mint_signer_seeds: &[&[_]] = &[
+        b"mint",
+        pool_info.key.as_ref(),
+        &[lp_mint_bump],
+    ];
+
+    invoke_signed(
+        &system_instruction::create_account(
+            user_info.key,
+            lp_mint_info.key,
+            mint_lamports,
+            mint_space as u64,
+            &Pubkey::from_str(GORBCHAIN_SPL_TOKEN_PROGRAM).unwrap(),
+        ),
+        &[
+            user_info.clone(),
+            lp_mint_info.clone(),
+            system_program_info.clone(),
+        ],
+        &[lp_mint_signer_seeds],
+    )?;
+
+    // Initialize LP mint as token mint
+    invoke_signed(
+        &create_initialize_mint_instruction(
+            lp_mint_info.key,
+            0, // decimals (0 for LP token)
+            pool_info.key, // mint authority is pool
+            None,          // no freeze authority
+        ),
+        &[
+            lp_mint_info.clone(),
+            rent_info.clone(),
+        ],
+        &[lp_mint_signer_seeds],
+    )?;
+
     // Transfer tokens to vaults
     invoke(
         &create_transfer_instruction(
@@ -378,6 +483,25 @@ fn process_init_pool(
             vault_b_info.clone(),
             user_info.clone(),
             token_program_info.clone(),
+        ],
+    )?;
+
+    // Create user LP ATA if it doesn't exist
+    invoke(
+        &create_associated_token_account_instruction(
+            user_info.key,
+            user_lp_info.key,
+            user_info.key,
+            lp_mint_info.key,
+        ),
+        &[
+            user_info.clone(),
+            user_lp_info.clone(),
+            user_info.clone(),
+            lp_mint_info.clone(),
+            rent_info.clone(),
+            token_program_info.clone(),
+            system_program_info.clone(),
         ],
     )?;
 
@@ -439,6 +563,10 @@ fn process_add_liquidity(
 
     let mut pool = Pool::unpack(&pool_info.data.borrow())?;
     
+    // Store token addresses before pool is moved
+    let token_a = pool.token_a;
+    let token_b = pool.token_b;
+    
     // Verify pool seeds
     let (pool_pubkey, _) = Pubkey::find_program_address(
         &[b"pool", token_a_info.key.as_ref(), token_b_info.key.as_ref()],
@@ -448,9 +576,9 @@ fn process_add_liquidity(
         return Err(ProgramError::InvalidSeeds);
     }
 
-    // Verify vault addresses
-    let (vault_a_pubkey, _) = get_vault_address(pool_info.key, &pool.token_a, program_id);
-    let (vault_b_pubkey, _) = get_vault_address(pool_info.key, &pool.token_b, program_id);
+    // Verify vault addresses and get bumps
+    let (vault_a_pubkey, vault_a_bump) = get_vault_address(pool_info.key, &token_a, program_id);
+    let (vault_b_pubkey, vault_b_bump) = get_vault_address(pool_info.key, &token_b, program_id);
     
     if vault_a_pubkey != *vault_a_info.key || vault_b_pubkey != *vault_b_info.key {
         return Err(ProgramError::InvalidSeeds);
@@ -549,6 +677,60 @@ fn process_add_liquidity(
     pool.total_lp_supply = pool.total_lp_supply.checked_add(liquidity).unwrap();
     
     Pool::pack(pool, &mut pool_info.data.borrow_mut())?;
+
+    // Refund unused tokens back to user (Uniswap pattern)
+    // If user provided more than the calculated final amount, return the excess
+    if amount_a > final_amount_a {
+        let excess_a = amount_a - final_amount_a;
+        let vault_a_signer_seeds: &[&[_]] = &[
+            b"vault",
+            pool_info.key.as_ref(),
+            &token_a.as_ref(),
+            &[vault_a_bump],
+        ];
+        
+        invoke_signed(
+            &create_transfer_instruction(
+                vault_a_info.key,
+                user_token_a_info.key,
+                vault_a_info.key,
+                excess_a,
+            ),
+            &[
+                vault_a_info.clone(),
+                user_token_a_info.clone(),
+                vault_a_info.clone(),
+                token_program_info.clone(),
+            ],
+            &[vault_a_signer_seeds],
+        )?;
+    }
+
+    if amount_b > final_amount_b {
+        let excess_b = amount_b - final_amount_b;
+        let vault_b_signer_seeds: &[&[_]] = &[
+            b"vault",
+            pool_info.key.as_ref(),
+            &token_b.as_ref(),
+            &[vault_b_bump],
+        ];
+        
+        invoke_signed(
+            &create_transfer_instruction(
+                vault_b_info.key,
+                user_token_b_info.key,
+                vault_b_info.key,
+                excess_b,
+            ),
+            &[
+                vault_b_info.clone(),
+                user_token_b_info.clone(),
+                vault_b_info.clone(),
+                token_program_info.clone(),
+            ],
+            &[vault_b_signer_seeds],
+        )?;
+    }
 
     Ok(())
 }
@@ -711,12 +893,6 @@ fn process_swap(
         return Err(ProgramError::InvalidSeeds);
     }
 
-    let (reserve_in, reserve_out) = if direction_a_to_b {
-        (pool.reserve_a, pool.reserve_b)
-    } else {
-        (pool.reserve_b, pool.reserve_a)
-    };
-
     // Transfer input tokens to vault
     if direction_a_to_b {
         invoke(
@@ -751,6 +927,11 @@ fn process_swap(
     }
 
     // Calculate output amount (with 0.3% fee)
+    let (reserve_in, reserve_out) = if direction_a_to_b {
+        (pool.reserve_a, pool.reserve_b)
+    } else {
+        (pool.reserve_b, pool.reserve_a)
+    };
     let amount_out = calculate_swap_output(amount_in, reserve_in, reserve_out)?;
 
     // Transfer output tokens from vault to user using vault PDA as authority
@@ -879,30 +1060,75 @@ fn process_multihop_swap(
             return Err(ProgramError::InvalidSeeds);
         }
         
-        // Determine swap direction (simplified - should be based on token analysis)
-        let direction_a_to_b = true; // This should be determined by token path logic
+        // Determine swap direction by checking which token the user is providing
+        // We need to check the token mint of the input account, not the account address
+        let input_token_mint = {
+            // Read the token account to get its mint
+            let token_account_data = current_input_account.data.borrow();
+            if token_account_data.len() < 64 {
+                return Err(ProgramError::InvalidAccountData);
+            }
+            // Token account mint is at offset 0-32
+            Pubkey::new_from_array(token_account_data[0..32].try_into().unwrap())
+        };
         
-        let (reserve_in, reserve_out, vault_in, vault_out, out_bump) = if direction_a_to_b {
-            (pool.reserve_a, pool.reserve_b, vault_a_info, vault_b_info, vault_b_bump)
+        let direction_a_to_b = if input_token_mint == pool.token_a {
+            // User is providing token_a mint, so swap A->B
+            true
+        } else if input_token_mint == pool.token_b {
+            // User is providing token_b mint, so swap B->A  
+            false
         } else {
-            (pool.reserve_b, pool.reserve_a, vault_b_info, vault_a_info, vault_a_bump)
+            return Err(ProgramError::InvalidArgument);
+        };
+        
+        // Debug: Log the direction for troubleshooting
+        solana_program::log::sol_log(&format!("Hop {}: pool.token_a = {}, pool.token_b = {}, input_token_mint = {}, direction_a_to_b = {}", 
+            hop, 
+            pool.token_a.to_string(), 
+            pool.token_b.to_string(), 
+            input_token_mint.to_string(), 
+            direction_a_to_b
+        ));
+        
+        let (reserve_in, reserve_out) = if direction_a_to_b {
+            (pool.reserve_a, pool.reserve_b)
+        } else {
+            (pool.reserve_b, pool.reserve_a)
         };
         
         // Transfer input tokens to vault
-        invoke(
-            &create_transfer_instruction(
-                current_input_account.key,
-                vault_in.key,
-                user_info.key,
-                current_amount,
-            ),
-            &[
-                current_input_account.clone(),
-                vault_in.clone(),
-                user_info.clone(),
-                token_program_info.clone(),
-            ],
-        )?;
+        if direction_a_to_b {
+            invoke(
+                &create_transfer_instruction(
+                    current_input_account.key,
+                    vault_a_info.key,
+                    user_info.key,
+                    current_amount,
+                ),
+                &[
+                    current_input_account.clone(),
+                    vault_a_info.clone(),
+                    user_info.clone(),
+                    token_program_info.clone(),
+                ],
+            )?;
+        } else {
+            invoke(
+                &create_transfer_instruction(
+                    current_input_account.key,
+                    vault_b_info.key,
+                    user_info.key,
+                    current_amount,
+                ),
+                &[
+                    current_input_account.clone(),
+                    vault_b_info.clone(),
+                    user_info.clone(),
+                    token_program_info.clone(),
+                ],
+            )?;
+        }
         
         // Calculate output amount
         let amount_out = calculate_swap_output(current_amount, reserve_in, reserve_out)?;
@@ -915,28 +1141,53 @@ fn process_multihop_swap(
         };
         
         // Transfer output tokens using vault PDA as authority
-        let vault_out_signer_seeds: &[&[_]] = &[
-            b"vault",
-            pool_info.key.as_ref(),
-            if direction_a_to_b { pool.token_b.as_ref() } else { pool.token_a.as_ref() },
-            &[out_bump],
-        ];
-        
-        invoke_signed(
-            &create_transfer_instruction(
-                vault_out.key,
-                target_output_account.key,
-                vault_out.key,
-                amount_out,
-            ),
-            &[
-                vault_out.clone(),
-                target_output_account.clone(),
-                vault_out.clone(),
-                token_program_info.clone(),
-            ],
-            &[vault_out_signer_seeds],
-        )?;
+        if direction_a_to_b {
+            let vault_b_signer_seeds: &[&[_]] = &[
+                b"vault",
+                pool_info.key.as_ref(),
+                pool.token_b.as_ref(),
+                &[vault_b_bump],
+            ];
+            
+            invoke_signed(
+                &create_transfer_instruction(
+                    vault_b_info.key,
+                    target_output_account.key,
+                    vault_b_info.key,
+                    amount_out,
+                ),
+                &[
+                    vault_b_info.clone(),
+                    target_output_account.clone(),
+                    vault_b_info.clone(),
+                    token_program_info.clone(),
+                ],
+                &[vault_b_signer_seeds],
+            )?;
+        } else {
+            let vault_a_signer_seeds: &[&[_]] = &[
+                b"vault",
+                pool_info.key.as_ref(),
+                pool.token_a.as_ref(),
+                &[vault_a_bump],
+            ];
+            
+            invoke_signed(
+                &create_transfer_instruction(
+                    vault_a_info.key,
+                    target_output_account.key,
+                    vault_a_info.key,
+                    amount_out,
+                ),
+                &[
+                    vault_a_info.clone(),
+                    target_output_account.clone(),
+                    vault_a_info.clone(),
+                    token_program_info.clone(),
+                ],
+                &[vault_a_signer_seeds],
+            )?;
+        }
         
         // Update pool reserves
         if direction_a_to_b {
@@ -1060,28 +1311,53 @@ fn process_multihop_swap_with_path(
         };
         
         // Transfer output tokens using vault PDA as authority
-        let vault_out_signer_seeds: &[&[_]] = &[
-            b"vault",
-            pool_info.key.as_ref(),
-            if direction_a_to_b { pool.token_b.as_ref() } else { pool.token_a.as_ref() },
-            &[out_bump],
-        ];
-        
-        invoke_signed(
-            &create_transfer_instruction(
-                vault_out.key,
-                target_output_account.key,
-                vault_out.key,
-                amount_out,
-            ),
-            &[
-                vault_out.clone(),
-                target_output_account.clone(),
-                vault_out.clone(),
-                token_program_info.clone(),
-            ],
-            &[vault_out_signer_seeds],
-        )?;
+        if direction_a_to_b {
+            let vault_b_signer_seeds: &[&[_]] = &[
+                b"vault",
+                pool_info.key.as_ref(),
+                pool.token_b.as_ref(),
+                &[vault_b_bump],
+            ];
+            
+            invoke_signed(
+                &create_transfer_instruction(
+                    vault_b_info.key,
+                    target_output_account.key,
+                    vault_b_info.key,
+                    amount_out,
+                ),
+                &[
+                    vault_b_info.clone(),
+                    target_output_account.clone(),
+                    vault_b_info.clone(),
+                    token_program_info.clone(),
+                ],
+                &[vault_b_signer_seeds],
+            )?;
+        } else {
+            let vault_a_signer_seeds: &[&[_]] = &[
+                b"vault",
+                pool_info.key.as_ref(),
+                pool.token_a.as_ref(),
+                &[vault_a_bump],
+            ];
+            
+            invoke_signed(
+                &create_transfer_instruction(
+                    vault_a_info.key,
+                    target_output_account.key,
+                    vault_a_info.key,
+                    amount_out,
+                ),
+                &[
+                    vault_a_info.clone(),
+                    target_output_account.clone(),
+                    vault_a_info.clone(),
+                    token_program_info.clone(),
+                ],
+                &[vault_a_signer_seeds],
+            )?;
+        }
         
         // Update pool reserves
         if direction_a_to_b {
@@ -1099,7 +1375,7 @@ fn process_multihop_swap_with_path(
         current_input_account = target_output_account;
     }
     
-    // Check minimum output requirement
+    // Ensure final output is above minimum
     if current_amount < minimum_amount_out {
         return Err(ProgramError::InsufficientFunds);
     }
