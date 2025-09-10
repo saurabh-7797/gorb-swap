@@ -96,8 +96,8 @@ async function getAllPoolInfoDirect() {
     console.log("🚀 Direct Pool Queries (No Transactions Required)...");
     
     // Load pool info from existing files
-    const poolXYInfo = JSON.parse(fs.readFileSync('pool-xy-info.json', 'utf-8'));
-    const poolYZInfo = JSON.parse(fs.readFileSync('pool-yz-info.json', 'utf-8'));
+    const poolXYInfo = JSON.parse(fs.readFileSync('swap-main/scripts/pool-xy-info.json', 'utf-8'));
+    const poolYZInfo = JSON.parse(fs.readFileSync('swap-main/scripts/pool-yz-info.json', 'utf-8'));
     
     const POOL_XY_PDA = new PublicKey(poolXYInfo.poolPDA);
     const POOL_YZ_PDA = new PublicKey(poolYZInfo.poolPDA);

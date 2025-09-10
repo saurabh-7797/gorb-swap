@@ -56,7 +56,7 @@ async function addLiquidityXY() {
     console.log("🚀 TypeScript Script: Adding Liquidity to Pool X-Y...");
     
     // Load pool info from existing file
-    const poolInfo = JSON.parse(fs.readFileSync('pool-xy-info.json', 'utf-8'));
+    const poolInfo = JSON.parse(fs.readFileSync('swap-main/scripts/pool-xy-info.json', 'utf-8'));
     
     const POOL_PDA = new PublicKey(poolInfo.poolPDA);
     const TOKEN_X_MINT = new PublicKey(poolInfo.tokenX);
