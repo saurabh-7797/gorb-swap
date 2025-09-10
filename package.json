@@ -1,0 +1,71 @@
+{
+  "name": "gorb-swap-contract",
+  "version": "1.0.0",
+  "description": "Complete AMM implementation with native SOL support and multihop swaps",
+  "main": "index.js",
+  "scripts": {
+    "build": "cd swap-main && cargo build-sbf",
+    "deploy": "cd swap-main && solana program deploy target/deploy/cargo_swap.so",
+    "test": "npm run test:all",
+    "test:all": "npm run test:tokens && npm run test:pools && npm run test:swaps",
+    "test:tokens": "npm run create:tokenx && npm run create:tokeny && npm run create:tokenz",
+    "test:pools": "npm run init:pool-xy && npm run init:pool-yz && npm run init:pool-native",
+    "test:swaps": "npm run add:liquidity && npm run test:swap-operations",
+    "create:tokenx": "npx ts-node swap-main/scripts/1-tokenx.ts",
+    "create:tokeny": "npx ts-node swap-main/scripts/2-tokeny.ts",
+    "create:tokenz": "npx ts-node swap-main/scripts/3-tokenz.ts",
+    "init:pool-xy": "npx ts-node swap-main/scripts/init-pool-only.ts",
+    "init:pool-yz": "npx ts-node swap-main/scripts/init-pool-yz.ts",
+    "init:pool-native": "npx ts-node swap-main/scripts/init-native-sol-pool.ts",
+    "add:liquidity": "npm run add:liquidity-xy && npm run add:liquidity-native",
+    "add:liquidity-xy": "npx ts-node swap-main/scripts/add-liquidity-xy.ts",
+    "add:liquidity-native": "npx ts-node swap-main/scripts/add-liquidity-native-sol.ts",
+    "swap:x-to-y": "npx ts-node swap-main/scripts/swap-x-to-y.ts",
+    "swap:y-to-x": "npx ts-node swap-main/scripts/swap-y-to-x.ts",
+    "swap:native-to-token": "npx ts-node swap-main/scripts/swap-native-sol-to-token.ts",
+    "swap:token-to-native": "npx ts-node swap-main/scripts/swap-token-to-native-sol.ts",
+    "multihop:x-y-z": "npx ts-node swap-main/scripts/multihop-swap-x-y-z-single.ts",
+    "multihop:z-y-x": "npx ts-node swap-main/scripts/multihop-swap-z-y-x.ts",
+    "remove:liquidity-xy": "npx ts-node swap-main/scripts/remove-liquidity-xy.ts",
+    "remove:liquidity-native": "npx ts-node swap-main/scripts/remove-liquidity-native-sol.ts",
+    "get:pool-info": "npx ts-node swap-main/scripts/get-pool-info.ts",
+    "get:total-pools": "npx ts-node swap-main/scripts/get-total-pools.ts",
+    "get:swap-quote": "npx ts-node swap-main/scripts/get-swap-quote.ts",
+    "get:multihop-quote": "npx ts-node swap-main/scripts/get-multihop-quote.ts",
+    "find:pools": "npx ts-node swap-main/scripts/find-pools-by-token.ts",
+    "query:direct": "npx ts-node swap-main/scripts/get-pool-info-direct.ts"
+  },
+  "keywords": [
+    "solana",
+    "amm",
+    "defi",
+    "swap",
+    "liquidity",
+    "multihop",
+    "native-sol"
+  ],
+  "author": "saurabh-7797",
+  "license": "MIT",
+  "dependencies": {
+    "@solana/web3.js": "^1.95.0",
+    "@solana/spl-token": "^0.4.0",
+    "@coral-xyz/borsh": "^0.29.0",
+    "bs58": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.0",
+    "ts-node": "^10.9.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/saurabh-7797/gorb-swap.git"
+  },
+  "bugs": {
+    "url": "https://github.com/saurabh-7797/gorb-swap/issues"
+  },
+  "homepage": "https://github.com/saurabh-7797/gorb-swap#readme"
+}
